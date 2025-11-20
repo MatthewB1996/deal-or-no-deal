@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Deal or No Deal – Classroom Edition</title>
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background:#111;
+    color:white;
+    text-align:center;
+    margin:0;
+    padding:20px;
+  }
+
+  h1 {
+    margin-bottom:5px;
+  }
+
+  #instructions {
+    font-size:20px;
+    margin-top:0;
+    margin-bottom:15px;
+  }
+
+  .case-grid {
+    display:grid;
+    grid-template-columns:repeat(6, 1fr);
+    gap:15px;
+    max-width:1300px;
+    margin:20px auto;
+  }
+
+  .case {
+    background:linear-gradient(to bottom, #ffd700, #e6a600);
+    border:4px solid #b8860b;
+    border-radius:12px;
+    padding:28px;
+    text-align:center;
+    font-size:32px;
+    font-weight:bold;
+    cursor:pointer;
+    transition:transform 0.2s;
+  }
+
+  .case:hover {
+    transform:scale(1.08);
+  }
+
+  .opened {
+    background:#444 !important;
+    color:white !important;
+    cursor:default !important;
+    transform:none !important;
+  }
+
+  .main-case {
+    box-shadow:0 0 0 5px #00bfff;
+  }
+
+  #bottom-panels {
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:center;
+    gap:20px;
+    margin-top:20px;
+  }
+
+  #amounts-box {
+    background:#003366;
+    color:white;
+    padding:15px;
+    border-radius:12px;
+    max-width:400px;
+    min-width:260px;
+    text-align:left;
+    font-size:18px;
+  }
+
+  #amounts-box ul {
+    margin-top:8px;
+    padding-left:20px;
+  }
+
+  #game-info-box {
+    background:#222;
+    color:white;
+    padding:15px;
+    border-radius:12px;
+    max-width:320px;
+    min-width:260px;
+    text-align:left;
+    font-size:18px;
+  }
+
+  #offer-panel {
+    margin-top:25px;
+    display:none;
+  }
+
+  #bank-offer-text {
+    font-size:24px;
+    margin-bottom:10px;
+  }
+
+  #deal-button, #nodeal-button {
+    margin:8px;
+    padding:12px 24px;
+    font-size:20px;
+    border-radius:8px;
+    cursor:pointer;
+    border:none;
+  }
+
+  #deal-button {
+    background:#28a745;
+    color:white;
+  }
+
+  #nodeal-button {
+    background:#c82333;
+    color:white;
+  }
+
+  #final-message {
+    margin-top:20px;
+    font-size:24px;
+    font-weight:bold;
+  }
+</style>
+</head>
+
+<body>
+
+<h1>🎉 Deal or No Deal 🎉</h1>
+<p id="instructions">Step 1: Choose your main case. This will be opened last.</p>
+
+<div class="case-grid" id="case-grid"></div>
+
+<div id="bottom-panels">
+  <div id="amounts-box">
+    <strong>Remaining Amounts:</strong>
+    <ul id="remaining"></ul>
+  </div>
+
+  <div id="game-info-box">
+    <p><strong>Main case:</strong> <span id="main-case-label">Not chosen</span></p>
+    <p><strong>Game phase:</strong> <span id="phase-label">Choose main case</span></p>
+    <p><strong>Current round:</strong> <span id="round-label">–</span></p>
+    <p><strong>Cases to open this round:</strong> <span id="to-open-label">–</span></p>
+    <p><strong>Cases opened this round:</strong> <span id="opened-this-round-label">0</span></p>
+    <p><strong>Other unopened cases:</strong> <span id="others-remaining-label">25</span></p>
+  </div>
+</div>
+
+<div id="offer-panel">
+  <p id="bank-offer-text"></p>
+  <button id="deal-button" onclick="takeDeal()">Deal</button>
+  <button id="nodeal-button" onclick="noDeal()">No Deal</button>
+</div>
+
+<p id="final-message"></p>
+
+<script>
+  // 26 prize amounts (you can tweak these if you like)
+  let amounts = [
+    1, 5, 10, 20, 50, 75,
+    100, 200, 300, 400, 500,
+    750, 1000, 2500, 5000,
+    10000, 20000, 50000, 75000,
+    100000, 200000, 300000,
+    500000, 750000, 1000000,
+    2000000
+  ];
+
+  // Shuffle amounts and set up game state
+  let shuffled = shuffle(amounts.slice());
+  let openedIndices = new Set();
+  let mainCaseIndex = null;
+  let mainCaseAmount = null;
+
+  // Game phases: "chooseMain", "openCases", "awaitDecision", "revealMain", "finished"
+  let gamePhase = "chooseMain";
+
+  // Round structure: official show-style, then 1 case per round
+  const baseRoundTargets = [6, 5, 4, 3, 2, 1];
+  let roundIndex = 0;
+  let openedThisRound = 0;
+  let currentOffer = 0;
+
+  function shuffle(a) {
+    for (let i = a.length - 1; i > 0; i--) {
+      let j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function init() {
+    let grid = document.getElementById("case-grid");
+    for (let i = 0; i < 26; i++) {
+      let box = document.createElement("div");
+      box.className = "case";
+      box.id = "case" + i;
+      box.innerHTML = (i + 1);
+      box.onclick = () => handleCaseClick(i);
+      grid.appendChild(box);
+    }
+    updateRemaining();
+    updateRoundInfo();
+  }
+
+  function handleCaseClick(i) {
+    if (gamePhase === "chooseMain") {
+      // Select main case
+      mainCaseIndex = i;
+      mainCaseAmount = shuffled[i];
+      let el = document.getElementById("case" + i);
+      el.classList.add("main-case");
+      document.getElementById("main-case-label").textContent = (i + 1);
+      gamePhase = "openCases";
+      openedThisRound = 0;
+      roundIndex = 0;
+      document.getElementById("instructions").textContent =
+        "Now open " + currentRoundTarget() + " case(s) (NOT your main case).";
+      updateRoundInfo();
+      return;
+    }
+
+    if (gamePhase === "openCases") {
+      if (i === mainCaseIndex) return; // cannot open main case yet
+      if (openedIndices.has(i)) return;
+      openCase(i);
+      return;
+    }
+
+    if (gamePhase === "revealMain" && i === mainCaseIndex) {
+      revealMainCase();
+      return;
+    }
+
+    // In other phases, clicks do nothing
+  }
+
+  function openCase(i) {
+    openedIndices.add(i);
+    let el = document.getElementById("case" + i);
+    el.classList.add("opened");
+    el.textContent = "$" + shuffled[i].toLocaleString();
+    openedThisRound++;
+    updateRemaining();
+    updateRoundInfo();
+    checkRoundEnd();
+  }
+
+  function unopenedNonMainCount() {
+    if (mainCaseIndex === null) {
+      return 0;
+    }
+    let count = 0;
+    for (let i = 0; i < shuffled.length; i++) {
+      if (i !== mainCaseIndex && !openedIndices.has(i)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  function currentRoundTarget() {
+    if (roundIndex < baseRoundTargets.length) {
+      return baseRoundTargets[roundIndex];
+    }
+    // After base rounds, 1 case per round with offers
+    return 1;
+  }
+
+  function checkRoundEnd() {
+    let remainingOthers = unopenedNonMainCount();
+
+    // All other cases opened: time to reveal main case
+    if (remainingOthers === 0) {
+      startFinalReveal();
+      return;
+    }
+
+    let target = currentRoundTarget();
+    if (openedThisRound >= target) {
+      makeOffer();
+    }
+  }
+
+  function updateRemaining() {
+    let list = document.getElementById("remaining");
+    list.innerHTML = "";
+
+    let remaining = shuffled.filter((v, idx) => !openedIndices.has(idx));
+    // Note: main case is still in remaining until revealed
+    remaining.sort((a, b) => a - b);
+
+    remaining.forEach(val => {
+      let li = document.createElement("li");
+      li.innerHTML = "$" + val.toLocaleString();
+      list.appendChild(li);
+    });
+  }
+
+  function updateRoundInfo() {
+    let phaseLabel = document.getElementById("phase-label");
+    let roundLabel = document.getElementById("round-label");
+    let toOpenLabel = document.getElementById("to-open-label");
+    let openedThisRoundLabel = document.getElementById("opened-this-round-label");
+    let othersRemainingLabel = document.getElementById("others-remaining-label");
+
+    if (gamePhase === "chooseMain") {
+      phaseLabel.textContent = "Choose main case";
+      roundLabel.textContent = "–";
+      toOpenLabel.textContent = "–";
+    } else if (gamePhase === "openCases") {
+      phaseLabel.textContent = "Opening cases";
+      roundLabel.textContent = (roundIndex + 1);
+      toOpenLabel.textContent = currentRoundTarget();
+    } else if (gamePhase === "awaitDecision") {
+      phaseLabel.textContent = "Banker decision";
+      roundLabel.textContent = (roundIndex + 1);
+      toOpenLabel.textContent = currentRoundTarget();
+    } else if (gamePhase === "revealMain") {
+      phaseLabel.textContent = "Final reveal";
+      roundLabel.textContent = "–";
+      toOpenLabel.textContent = "0";
+    } else if (gamePhase === "finished") {
+      phaseLabel.textContent = "Game over";
+      // roundLabel & toOpenLabel remain as last values
+    }
+
+    openedThisRoundLabel.textContent = openedThisRound;
+    othersRemainingLabel.textContent = unopenedNonMainCount();
+  }
+
+  function makeOffer() {
+    let remaining = shuffled.filter((v, idx) => !openedIndices.has(idx));
+    let avg = remaining.reduce((a, b) => a + b, 0) / remaining.length;
+    // Banker offers 75% of expected value
+    currentOffer = Math.round(avg * 0.75);
+
+    document.getElementById("bank-offer-text").innerHTML =
+      "💼 Banker offers: <strong>$" + currentOffer.toLocaleString() + "</strong>";
+
+    document.getElementById("offer-panel").style.display = "block";
+    document.getElementById("instructions").textContent = "Deal or No Deal?";
+    gamePhase = "awaitDecision";
+    updateRoundInfo();
+  }
+
+  function takeDeal() {
+    gamePhase = "finished";
+    document.getElementById("offer-panel").style.display = "none";
+
+    // Reveal main case and all others for comparison
+    revealAllCases(true);
+
+    let msg = "DEAL! You took $" + currentOffer.toLocaleString() +
+              ". Your original case (No. " + (mainCaseIndex + 1) +
+              ") contained $" + mainCaseAmount.toLocaleString() + ".";
+    document.getElementById("final-message").textContent = msg;
+    document.getElementById("instructions").textContent =
+      "Game over – you accepted the deal.";
+    updateRoundInfo();
+  }
+
+  function noDeal() {
+    document.getElementById("offer-panel").style.display = "none";
+    roundIndex++;
+    openedThisRound = 0;
+
+    let remainingOthers = unopenedNonMainCount();
+    if (remainingOthers === 0) {
+      startFinalReveal();
+      return;
+    }
+
+    gamePhase = "openCases";
+    document.getElementById("instructions").textContent =
+      "No Deal! Open " + currentRoundTarget() + " more case(s).";
+    updateRoundInfo();
+  }
+
+  function startFinalReveal() {
+    gamePhase = "revealMain";
+    document.getElementById("offer-panel").style.display = "none";
+    document.getElementById("instructions").textContent =
+      "Only your original case remains. Click it to reveal your prize!";
+    updateRoundInfo();
+  }
+
+  function revealMainCase() {
+    // Reveal the main case
+    let el = document.getElementById("case" + mainCaseIndex);
+    el.classList.add("opened");
+    el.innerHTML = "Your Case<br>$" + mainCaseAmount.toLocaleString();
+    openedIndices.add(mainCaseIndex);
+    updateRemaining();
+
+    gamePhase = "finished";
+    let msg = "NO DEAL! Your original case contained $" +
+              mainCaseAmount.toLocaleString() + ".";
+    document.getElementById("final-message").textContent = msg;
+    document.getElementById("instructions").textContent =
+      "Game over – your original case has been revealed.";
+    updateRoundInfo();
+  }
+
+  function revealAllCases(includeMain) {
+    for (let i = 0; i < shuffled.length; i++) {
+      let el = document.getElementById("case" + i);
+      if (!el) continue;
+      if (i === mainCaseIndex && includeMain) {
+        el.classList.add("opened");
+        el.innerHTML = "Your Case<br>$" + mainCaseAmount.toLocaleString();
+      } else if (i !== mainCaseIndex) {
+        el.classList.add("opened");
+        el.textContent = "$" + shuffled[i].toLocaleString();
+      }
+    }
+    // Mark all as opened in state
+    for (let i = 0; i < shuffled.length; i++) {
+      openedIndices.add(i);
+    }
+    updateRemaining();
+  }
+
+  // Start the game
+  init();
+</script>
+
+</body>
+</html>
